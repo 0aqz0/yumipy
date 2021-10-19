@@ -5,14 +5,11 @@ Author: Jacky Liang
 from setuptools import setup
 
 requirements = [
-    'autolab_core',
+    # 'autolab_core',
     'numpy',
     'matplotlib',
     'multiprocess',
     'setproctitle',
-    'ipython==5.5.0',
-    'rospkg',
-    'catkin_pkg',
     'empy',
     'pyassimp'
 ]
@@ -25,12 +22,6 @@ setup(name='yumipy',
       author_email='jackyliang@berkeley.edu',
       package_dir = {'': '.'},
       packages=['yumipy'],
-      install_requires = requirements,
-      extras_require = { 'docs' : [
-                            'sphinx',
-                            'sphinxcontrib-napoleon',
-                            'sphinx_rtd_theme'
-                          ],
-      }
+      install_requires = requirements
      )
 

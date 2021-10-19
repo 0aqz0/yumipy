@@ -4,34 +4,32 @@ Author: Jacky Liang
 '''
 
 from multiprocessing import Process, Queue
-from Queue import Empty
+from queue import Empty
 import logging
 import socket
 import sys
-import os
-from time import sleep, time
+from time import sleep
 from collections import namedtuple
 import numpy as np
-from autolab_core import RigidTransform
+from rigid_transform import RigidTransform
 from yumi_constants import YuMiConstants as YMC
 from yumi_state import YuMiState
 from yumi_motion_logger import YuMiMotionLogger
 from yumi_util import message_to_state, message_to_pose
 from yumi_exceptions import YuMiCommException,YuMiControlException
-from yumi_planner import YuMiMotionPlanner
 import pickle
 
 # Check if ROS and the service file can be imported
-ROS_ENABLED = False
-try:
-    import rospy
-    try:
-        from yumipy.srv import *
-        ROS_ENABLED = True
-    except ImportError:
-        logging.warning("yumipy not installed as catkin package, yumi over ros will be unavailable")
-except ImportError:
-    logging.warning("rospy could not be imported, yumi over ros will be unavailable")
+# ROS_ENABLED = False
+# try:
+#     import rospy
+#     try:
+#         from yumipy.srv import *
+#         ROS_ENABLED = True
+#     except ImportError:
+#         logging.warning("yumipy not installed as catkin package, yumi over ros will be unavailable")
+# except ImportError:
+#     logging.warning("rospy could not be imported, yumi over ros will be unavailable")
 
 _RAW_RES = namedtuple('_RAW_RES', 'mirror_code res_code message')
 _RES = namedtuple('_RES', 'raw_res data')
@@ -109,15 +107,15 @@ class _YuMiEthernet(Process):
 
             while True:
                 try:
-                    self._socket.send(req_packet.req)
+                    self._socket.send(req_packet.req.encode())
                     break
-                except socket.error, e:
+                except socket.error as e:
                     # TODO: better way to handle this mysterious bad file descriptor error
                     if e.errno == 9:
                         self._reset_socket()
             try:
                 raw_res = self._socket.recv(self._bufsize)
-            except socket.error, e:
+            except socket.error as e:
                 if e.errno == 114: # request time out
                     raise YuMiCommException('Request timed out: {0}'.format(req_packet))
 
@@ -126,7 +124,7 @@ class _YuMiEthernet(Process):
         if raw_res is None or len(raw_res) == 0:
             raise YuMiCommException('Empty response! For req: {0}'.format(req_packet))
 
-        tokens = raw_res.split()
+        tokens = raw_res.decode().split()
         res = _RAW_RES(int(tokens[0]), int(tokens[1]), ' '.join(tokens[2:]))
         return res
 
@@ -206,6 +204,7 @@ class YuMiArm:
         self._last_sets = {
             'zone': None,
             'speed': None,
+            'set_time_interval': None,
             'tool': None,
             'gripper_force': None,
             'gripper_max_speed': None,
@@ -699,6 +698,33 @@ class YuMiArm:
         self._last_sets['speed'] = speed_data
         return self._request(req, wait_for_res)
 
+    
+    def set_time_interval(self, time_interval, wait_for_res=True):
+        '''Sets the time interval for execution time of each path point.
+
+        Parameters
+        ----------
+        time_interval : double (actually as a 1-D tuple)
+            Specifies the time interval for the execution of each path point.
+        wait_for_res : bool, optional
+            If True, will block main process until response received from RAPID server.
+            Defaults to True
+
+        Returns
+        -------
+        None if wait_for_res is False
+        namedtuple('_RAW_RES', 'mirror_code res_code message') otherwise
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        body = YuMiArm._iter_to_str('{:.2f}', time_interval)
+        req = YuMiArm._construct_req('set_time_interval', body)
+        self._last_sets['set_time_interval'] = time_interval
+        return self._request(req, wait_for_res)
+
     def set_zone(self, zone_data, wait_for_res=True):
         '''Goto a target pose by transforming the current pose using the given translation and rotation
 
@@ -790,6 +816,31 @@ class YuMiArm:
         req = YuMiArm._construct_req('buffer_add', body)
         return self._request(req, wait_for_res)
 
+    def joint_buffer_add_single(self, state, wait_for_res=True):
+        '''Add single pose to the linear movement buffer in RAPID
+
+        Parameters
+        ----------
+        pose : RigidTransform
+        wait_for_res : bool, optional
+            If True, will block main process until response received from RAPID server.
+            Defaults to True
+
+        Returns
+        -------
+        None if wait_for_res is False
+        namedtuple('_RAW_RES', 'mirror_code res_code message') otherwise
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        body = YuMiArm._iter_to_str('{:.2f}', state.joints)
+        req = YuMiArm._construct_req('joint_buffer_add', body)
+        res = self._request(req, wait_for_res, timeout=self._motion_timeout)
+        return res
+
     def buffer_add_all(self, pose_list, wait_for_res=True):
         '''Add a list of poses to the linear movement buffer in RAPID
 
@@ -835,6 +886,28 @@ class YuMiArm:
         req = YuMiArm._construct_req('buffer_clear')
         return self._request(req, wait_for_res)
 
+    def joint_buffer_clear(self, wait_for_res=True):
+        '''Clears the linear movement buffer in RAPID
+
+        Parameters
+        ----------
+        wait_for_res : bool, optional
+            If True, will block main process until response received from RAPID server.
+            Defaults to True
+
+        Returns
+        -------
+        None if wait_for_res is False
+        namedtuple('_RAW_RES', 'mirror_code res_code message') otherwise
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        req = YuMiArm._construct_req('joint_buffer_clear')
+        return self._request(req, wait_for_res)
+
     def buffer_size(self, raw_res=False):
         '''Gets the current linear movement buffer size.
 
@@ -864,8 +937,62 @@ class YuMiArm:
                     return _RES(res, size)
                 else:
                     return size
-            except Exception, e:
+            except Exception as e:
                 logging.error(e)
+
+    def joint_buffer_size(self, raw_res=False):
+        '''Gets the current linear movement buffer size.
+
+        Parameters
+        ----------
+        wait_for_res : bool, optional
+            If True, will block main process until response received from RAPID server.
+            Defaults to True
+
+        Returns
+        -------
+        None if wait_for_res is False
+        namedtuple('_RAW_RES', 'mirror_code res_code message') otherwise
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        req = YuMiArm._construct_req('joint_buffer_size')
+        res = self._request(req, True)
+
+        if res is not None:
+            try:
+                size = int(res.message)
+                if raw_res:
+                    return _RES(res, size)
+                else:
+                    return size
+            except Exception as e:
+                logging.error(e)
+
+    def joint_buffer_move(self, wait_for_res=True):
+        '''Executes the linear movement buffer
+
+        Parameters
+        ----------
+        wait_for_res : bool, optional
+            If True, will block main process until response received from RAPID server.
+            Defaults to True
+
+        Returns
+        -------
+        None if wait_for_res is False
+        namedtuple('_RAW_RES', 'mirror_code res_code message') otherwise
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        req = YuMiArm._construct_req('joint_buffer_move')
+        return self._request(req, wait_for_res, timeout=self._motion_timeout)
 
     def buffer_move(self, wait_for_res=True):
         '''Executes the linear movement buffer
@@ -1133,65 +1260,65 @@ class YuMiArm:
         req = YuMiArm._construct_req('reset_home')
         return self._request(req, wait_for_res)
 
-class YuMiArm_ROS:
-    """ Interface to remotely control a single arm of an ABB YuMi robot.
-    Communicates over ROS to a yumi arm server (initialize server through roslaunch)
+# class YuMiArm_ROS:
+#     """ Interface to remotely control a single arm of an ABB YuMi robot.
+#     Communicates over ROS to a yumi arm server (initialize server through roslaunch)
 
-    Parameters
-    ----------
-    arm_service : string
-        ROSYumiArm service to interface with. If the ROSYumiArm services are started through
-        yumi_arms.launch they will be called left_arm and right_arm
-    namespace : string, optional
-        Namespace to prepend to arm_service. If None, current namespace is prepended.
-    """
-    def __init__(self, arm_service, namespace = None, timeout = YMC.ROS_TIMEOUT):
-        if namespace == None:
-            self.arm_service = rospy.get_namespace() + arm_service
-        else:
-            self.arm_service = namespace + arm_service
+#     Parameters
+#     ----------
+#     arm_service : string
+#         ROSYumiArm service to interface with. If the ROSYumiArm services are started through
+#         yumi_arms.launch they will be called left_arm and right_arm
+#     namespace : string, optional
+#         Namespace to prepend to arm_service. If None, current namespace is prepended.
+#     """
+#     def __init__(self, arm_service, namespace = None, timeout = YMC.ROS_TIMEOUT):
+#         if namespace == None:
+#             self.arm_service = rospy.get_namespace() + arm_service
+#         else:
+#             self.arm_service = namespace + arm_service
 
-        self.timeout = timeout
+#         self.timeout = timeout
 
-    def __getattr__(self, name):
-        """ Override the __getattr__ method so that function calls become server requests
+#     def __getattr__(self, name):
+#         """ Override the __getattr__ method so that function calls become server requests
 
-        If the name is a method of the YuMiArm class, this returns a function that calls that
-        function on the YuMiArm instance in the server. The wait_for_res argument is not available
-        remotely and will always be set to True. This is to prevent odd desynchronized crashes
+#         If the name is a method of the YuMiArm class, this returns a function that calls that
+#         function on the YuMiArm instance in the server. The wait_for_res argument is not available
+#         remotely and will always be set to True. This is to prevent odd desynchronized crashes
 
-        Otherwise, the name is considered to be an attribute, and getattr is called on the
-        YuMiArm instance in the server. Note that if it isn't an attribute either a RuntimeError
-        will be raised.
+#         Otherwise, the name is considered to be an attribute, and getattr is called on the
+#         YuMiArm instance in the server. Note that if it isn't an attribute either a RuntimeError
+#         will be raised.
 
-        The difference here is that functions access the server *on call* and non-functions do
-        *on getting the name*
+#         The difference here is that functions access the server *on call* and non-functions do
+#         *on getting the name*
 
-        Also note that this is __getattr__, so things like __init__ and __dict__ WILL NOT trigger
-        this function as the YuMiArm_ROS object already has these as attributes.
-        """
-        if name in YuMiArm.__dict__:
-            def handle_remote_call(*args, **kwargs):
-                """ Handle the remote call to some YuMiArm function.
-                """
-                rospy.wait_for_service(self.arm_service, timeout = self.timeout)
-                arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
-                if 'wait_for_res' in kwargs:
-                    kwargs['wait_for_res'] = True
-                try:
-                    response = arm(pickle.dumps(name), pickle.dumps(args), pickle.dumps(kwargs))
-                except rospy.ServiceException, e:
-                    raise RuntimeError("Service call failed: {0}".format(str(e)))
-                return pickle.loads(response.ret)
-            return handle_remote_call
-        else:
-            rospy.wait_for_service(self.arm_service, timeout = self.timeout)
-            arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
-            try:
-                response = arm(pickle.dumps('__getattribute__'), pickle.dumps(name), pickle.dumps(None))
-            except rospy.ServiceException, e:
-                raise RuntimeError("Could not get attribute: {0}".format(str(e)))
-            return pickle.loads(response.ret)
+#         Also note that this is __getattr__, so things like __init__ and __dict__ WILL NOT trigger
+#         this function as the YuMiArm_ROS object already has these as attributes.
+#         """
+#         if name in YuMiArm.__dict__:
+#             def handle_remote_call(*args, **kwargs):
+#                 """ Handle the remote call to some YuMiArm function.
+#                 """
+#                 rospy.wait_for_service(self.arm_service, timeout = self.timeout)
+#                 arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
+#                 if 'wait_for_res' in kwargs:
+#                     kwargs['wait_for_res'] = True
+#                 try:
+#                     response = arm(pickle.dumps(name), pickle.dumps(args), pickle.dumps(kwargs))
+#                 except rospy.ServiceException as e:
+#                     raise RuntimeError("Service call failed: {0}".format(str(e)))
+#                 return pickle.loads(response.ret)
+#             return handle_remote_call
+#         else:
+#             rospy.wait_for_service(self.arm_service, timeout = self.timeout)
+#             arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
+#             try:
+#                 response = arm(pickle.dumps('__getattribute__'), pickle.dumps(name), pickle.dumps(None))
+#             except rospy.ServiceException as e:
+#                 raise RuntimeError("Could not get attribute: {0}".format(str(e)))
+#             return pickle.loads(response.ret)
 
 class YuMiArmFactory:
     """ Factory class for YuMiArm interfaces. """
@@ -1222,11 +1349,11 @@ class YuMiArmFactory:
         """
         if arm_type == 'local':
             return YuMiArm(name, port=YMC.PORTS[name]["server"])
-        elif arm_type == 'remote':
-            if ROS_ENABLED:
-                return YuMiArm_ROS('yumi_robot/{0}_arm'.format(name), namespace = ros_namespace)
-            else:
-                raise RuntimeError("Remote YuMiArm is not enabled because yumipy is not installed as a catkin package")
+        # elif arm_type == 'remote':
+        #     if ROS_ENABLED:
+        #         return YuMiArm_ROS('yumi_robot/{0}_arm'.format(name), namespace = ros_namespace)
+        #     else:
+        #         raise RuntimeError("Remote YuMiArm is not enabled because yumipy is not installed as a catkin package")
         else:
             raise ValueError('YuMiArm type {0} not supported'.format(arm_type))
 

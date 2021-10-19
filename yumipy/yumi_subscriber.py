@@ -4,7 +4,6 @@ Author: Jacky Liang
 '''
 
 from multiprocessing import Process, Queue
-from Queue import Empty
 import socket
 import sys
 from collections import namedtuple
@@ -52,7 +51,7 @@ class _YuMiSubscriberEthernet(Process):
                     raw_res = None
                     try:
                         raw_res = self._socket.recv(self._bufsize)
-                    except socket.error, e:
+                    except socket.error as e:
                         if e.errno == 114: # request time out
                             raise YuMiCommException('Request timed out')
 
@@ -68,7 +67,7 @@ class _YuMiSubscriberEthernet(Process):
                     if self._data_q.full():
                         try:
                             self._data_q.get_nowait()
-                        except Empty:
+                        except Queue.Empty:
                             pass
 
                     self._data_q.put(res)

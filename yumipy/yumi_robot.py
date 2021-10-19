@@ -139,7 +139,7 @@ class YuMiRobot:
         if len(self._arms) != 2:
             raise Exception("Cannot goto state sync when not both arms are included!")
 
-        self.left._goto_state_sync(left_state)
+        self.left._goto_state_sync(left_state, wait_for_res=False) # should not wait_for_res since the Left Arm Task waits for Right Arm Task to finish for synchronization...
         self.right._goto_state_sync(right_state)
 
     def goto_pose_sync(self, left_pose, right_pose):
@@ -183,6 +183,37 @@ class YuMiRobot:
         speed_data = YuMiRobot.get_v(n)
         for arm in self._arms:
             arm.set_speed(speed_data)
+
+    def my_set_v(self, n):
+        '''Sets speed for both arms using n as the speed number.
+
+        Parameters
+        ----------
+            n: int
+                speed number. For example, if n = 100, then speed will be set to the corresponding v100;
+                If n = 300, then speed will be set to the corresponding v300;
+                specified in RAPID. Loosely, n is translational speed in milimeters per second
+
+        Raises
+        ------
+        YuMiCommException
+            If communication times out or socket error.
+        '''
+        speed_data = YuMiRobot.my_get_v(n)
+        for arm in self._arms:
+            arm.set_speed(speed_data)
+
+    def my_set_dt(self, dt):
+        '''Sets time interval for execution of each path point for both arms.
+
+        Parameters
+        ----------
+            dt: doublt
+                time interval, e.g. 0.5 seconds for execution of each path point
+                used to specify speed data for MoveAbsJ, e.g. v100\T:=dt.
+        '''
+        for arm in self._arms:
+            arm.set_time_interval((dt,))
 
     def set_z(self, name):
         '''Sets zoning settings for both arms according to name.
@@ -260,6 +291,20 @@ class YuMiRobot:
         return (tra, rot, tra, rot)
 
     @staticmethod
+    def my_construct_speed_data(tra):
+        '''Constructs a speed data tuple that's in the same format as ones used in RAPID.
+
+        Parameters
+        ----------
+            tra : float
+                    translational speed (milimeters per second)
+
+        Returns:
+            A tuple of correctly formatted speed data: (tra, rot, tra, rot)
+        '''
+        return (tra, 500, 5000, 1000)
+
+    @staticmethod
     def get_v(n):
         '''Gets the corresponding speed data for n as the speed number.
 
@@ -273,6 +318,21 @@ class YuMiRobot:
             Corresponding speed data tuple using n as speed number
         '''
         return YuMiRobot.construct_speed_data(n, 500)
+
+    @staticmethod
+    def my_get_v(n):
+        '''Gets the corresponding speed data for n as the speed number.
+
+        Parameters
+        ----------
+            n : int
+                    speed number. If n = 100, will return the same speed data as v100 in RAPID
+
+        Returns
+        -------
+            Corresponding speed data tuple using n as speed number
+        '''
+        return YuMiRobot.my_construct_speed_data(n)
 
     @staticmethod
     def get_z(name):

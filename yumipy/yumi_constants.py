@@ -4,7 +4,7 @@ Author: Jacky Liang
 '''
 import logging
 from yumi_state import YuMiState
-from autolab_core import RigidTransform
+from rigid_transform import RigidTransform
 
 class YuMiConstants:
 
@@ -76,6 +76,12 @@ class YuMiConstants:
         'buffer_clear': 31,
         'buffer_size': 32,
         'buffer_move': 33,
+
+        'joint_buffer_add': 50,
+        'joint_buffer_clear': 51,
+        'joint_buffer_size': 52,
+        'joint_buffer_move': 53,
+        'set_time_interval': 54,
         
         'is_pose_reachable': 40,
         'is_joints_reachable': 41,
