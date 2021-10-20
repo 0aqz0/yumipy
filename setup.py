@@ -1,19 +1,10 @@
-"""
-Setup of YuMiPy  codebase
-Author: Jacky Liang
-"""
 from setuptools import setup
 
 requirements = [
-    # 'autolab_core',
     'numpy',
-    'matplotlib',
     'multiprocess',
     'setproctitle',
-    'empy',
-    'pyassimp'
 ]
-
 
 setup(name='yumipy',
       version='0.1.0',
@@ -24,4 +15,3 @@ setup(name='yumipy',
       packages=['yumipy'],
       install_requires = requirements
      )
-

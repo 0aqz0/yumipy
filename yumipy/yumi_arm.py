@@ -17,19 +17,6 @@ from yumi_state import YuMiState
 from yumi_motion_logger import YuMiMotionLogger
 from yumi_util import message_to_state, message_to_pose
 from yumi_exceptions import YuMiCommException,YuMiControlException
-import pickle
-
-# Check if ROS and the service file can be imported
-# ROS_ENABLED = False
-# try:
-#     import rospy
-#     try:
-#         from yumipy.srv import *
-#         ROS_ENABLED = True
-#     except ImportError:
-#         logging.warning("yumipy not installed as catkin package, yumi over ros will be unavailable")
-# except ImportError:
-#     logging.warning("rospy could not be imported, yumi over ros will be unavailable")
 
 _RAW_RES = namedtuple('_RAW_RES', 'mirror_code res_code message')
 _RES = namedtuple('_RES', 'raw_res data')
@@ -1260,66 +1247,6 @@ class YuMiArm:
         req = YuMiArm._construct_req('reset_home')
         return self._request(req, wait_for_res)
 
-# class YuMiArm_ROS:
-#     """ Interface to remotely control a single arm of an ABB YuMi robot.
-#     Communicates over ROS to a yumi arm server (initialize server through roslaunch)
-
-#     Parameters
-#     ----------
-#     arm_service : string
-#         ROSYumiArm service to interface with. If the ROSYumiArm services are started through
-#         yumi_arms.launch they will be called left_arm and right_arm
-#     namespace : string, optional
-#         Namespace to prepend to arm_service. If None, current namespace is prepended.
-#     """
-#     def __init__(self, arm_service, namespace = None, timeout = YMC.ROS_TIMEOUT):
-#         if namespace == None:
-#             self.arm_service = rospy.get_namespace() + arm_service
-#         else:
-#             self.arm_service = namespace + arm_service
-
-#         self.timeout = timeout
-
-#     def __getattr__(self, name):
-#         """ Override the __getattr__ method so that function calls become server requests
-
-#         If the name is a method of the YuMiArm class, this returns a function that calls that
-#         function on the YuMiArm instance in the server. The wait_for_res argument is not available
-#         remotely and will always be set to True. This is to prevent odd desynchronized crashes
-
-#         Otherwise, the name is considered to be an attribute, and getattr is called on the
-#         YuMiArm instance in the server. Note that if it isn't an attribute either a RuntimeError
-#         will be raised.
-
-#         The difference here is that functions access the server *on call* and non-functions do
-#         *on getting the name*
-
-#         Also note that this is __getattr__, so things like __init__ and __dict__ WILL NOT trigger
-#         this function as the YuMiArm_ROS object already has these as attributes.
-#         """
-#         if name in YuMiArm.__dict__:
-#             def handle_remote_call(*args, **kwargs):
-#                 """ Handle the remote call to some YuMiArm function.
-#                 """
-#                 rospy.wait_for_service(self.arm_service, timeout = self.timeout)
-#                 arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
-#                 if 'wait_for_res' in kwargs:
-#                     kwargs['wait_for_res'] = True
-#                 try:
-#                     response = arm(pickle.dumps(name), pickle.dumps(args), pickle.dumps(kwargs))
-#                 except rospy.ServiceException as e:
-#                     raise RuntimeError("Service call failed: {0}".format(str(e)))
-#                 return pickle.loads(response.ret)
-#             return handle_remote_call
-#         else:
-#             rospy.wait_for_service(self.arm_service, timeout = self.timeout)
-#             arm = rospy.ServiceProxy(self.arm_service, ROSYumiArm)
-#             try:
-#                 response = arm(pickle.dumps('__getattribute__'), pickle.dumps(name), pickle.dumps(None))
-#             except rospy.ServiceException as e:
-#                 raise RuntimeError("Could not get attribute: {0}".format(str(e)))
-#             return pickle.loads(response.ret)
-
 class YuMiArmFactory:
     """ Factory class for YuMiArm interfaces. """
 
@@ -1349,11 +1276,6 @@ class YuMiArmFactory:
         """
         if arm_type == 'local':
             return YuMiArm(name, port=YMC.PORTS[name]["server"])
-        # elif arm_type == 'remote':
-        #     if ROS_ENABLED:
-        #         return YuMiArm_ROS('yumi_robot/{0}_arm'.format(name), namespace = ros_namespace)
-        #     else:
-        #         raise RuntimeError("Remote YuMiArm is not enabled because yumipy is not installed as a catkin package")
         else:
             raise ValueError('YuMiArm type {0} not supported'.format(arm_type))
 
